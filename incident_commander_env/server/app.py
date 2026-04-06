@@ -30,6 +30,14 @@ app = create_app(
     env_name="incident_commander_env",
 )
 
+@app.get("/")
+def read_root():
+    return {
+        "status": "online", 
+        "environment": "IncidentCommanderEnv",
+        "description": "OpenEnv API is running successfully. Connect via OpenEnv client to /step, /reset, and /ws."
+    }
+
 
 def main():
     """Entry point for direct execution."""
