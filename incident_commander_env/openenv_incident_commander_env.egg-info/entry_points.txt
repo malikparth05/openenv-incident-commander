@@ -1,0 +1,2 @@
+[console_scripts]
+server = incident_commander_env.server.app:main

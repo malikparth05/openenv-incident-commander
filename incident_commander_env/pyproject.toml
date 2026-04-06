@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-incident-commander-env"
+version = "1.0.0"
+description = "IT Incident Commander Environment for OpenEnv — simulating real-world outage management with alert triage, team delegation, and escalation decisions"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core]>=0.2.2",
+    "fastapi>=0.115.0",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.24.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+server = "incident_commander_env.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["incident_commander_env", "incident_commander_env.server"]
+package-dir = { "incident_commander_env" = ".", "incident_commander_env.server" = "server" }
