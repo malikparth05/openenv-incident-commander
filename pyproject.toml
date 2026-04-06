@@ -22,5 +22,8 @@ dev = [
 ]
 
 [project.scripts]
-server = "incident_commander_env.server.app:main"
+server = "server.app:main"
+
+[tool.setuptools]
+packages = ["incident_commander_env", "server"]
 

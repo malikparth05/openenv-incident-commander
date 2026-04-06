@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from incident_commander_env import IncidentCommanderEnv
+from incident_commander_env import IncidentCommanderEnv, CallToolAction
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -107,14 +107,23 @@ Examples:
 def format_observation(obs_metadata: Dict[str, Any], step: int) -> str:
     """Format the observation into a readable prompt for the LLM."""
     alerts_info = []
+    
+    # Handle dict fields directly
     for alert in obs_metadata.get("alerts", []):
+        if not isinstance(alert, dict):
+            # Try model_dump if it's a pydantic model
+            if hasattr(alert, "model_dump"):
+                alert = alert.model_dump()
+            elif hasattr(alert, "dict"):
+                alert = alert.dict()
+
         status = alert.get("status", "unknown")
         priority = alert.get("assigned_priority", "unset")
         team = alert.get("assigned_team", "unassigned")
         alerts_info.append(
-            f"  - [{alert['alert_id']}] [{alert['severity']}] {alert['title']}\n"
-            f"    Service: {alert['service']} | Status: {status} | Priority: {priority} | Team: {team}\n"
-            f"    Description: {alert['description'][:150]}..."
+            f"  - [{alert.get('alert_id', 'unknown')}] [{alert.get('severity', 'unknown')}] {alert.get('title', 'unknown')}\n"
+            f"    Service: {alert.get('service', 'unknown')} | Status: {status} | Priority: {priority} | Team: {team}\n"
+            f"    Description: {alert.get('description', '')[:150]}..."
         )
 
     alerts_block = "\n".join(alerts_info) if alerts_info else "  No alerts"
@@ -130,17 +139,29 @@ def format_observation(obs_metadata: Dict[str, Any], step: int) -> str:
     # SLA timers
     sla_info = []
     for timer in obs_metadata.get("sla_timers", []):
+        if not isinstance(timer, dict) and hasattr(timer, "model_dump"):
+            timer = timer.model_dump()
+        elif not isinstance(timer, dict) and hasattr(timer, "dict"):
+            timer = timer.dict()
+            
         if timer.get("breached"):
-            sla_info.append(f"  ⚠️ {timer['alert_id']}: SLA BREACHED!")
+            sla_info.append(f"  ⚠️ {timer.get('alert_id')}: SLA BREACHED!")
         elif timer.get("steps_remaining", 99) <= 3:
-            sla_info.append(f"  🔴 {timer['alert_id']}: {timer['steps_remaining']} steps until SLA breach!")
+            sla_info.append(f"  🔴 {timer.get('alert_id')}: {timer.get('steps_remaining')} steps until SLA breach!")
     sla_block = "\n".join(sla_info) if sla_info else ""
 
     last_result = obs_metadata.get("last_action_result", "")
     system_status = obs_metadata.get("system_status", "unknown")
     step_num = obs_metadata.get("step_number", step)
     max_steps = obs_metadata.get("max_steps", 10)
-    escalation = obs_metadata.get("escalation_state", {}).get("current_level", "none")
+    
+    escalation_state = obs_metadata.get("escalation_state", {})
+    if not isinstance(escalation_state, dict) and hasattr(escalation_state, "model_dump"):
+        escalation_state = escalation_state.model_dump()
+    elif not isinstance(escalation_state, dict) and hasattr(escalation_state, "dict"):
+        escalation_state = escalation_state.dict()
+        
+    escalation = escalation_state.get("current_level", "none")
 
     return textwrap.dedent(f"""
 === STEP {step_num}/{max_steps} ===
@@ -180,20 +201,21 @@ def get_model_action(client: OpenAI, observation_prompt: str, history: List[str]
         text = (completion.choices[0].message.content or "").strip()
 
         # Parse JSON response
-        # Try to extract JSON from the response (handle markdown code blocks)
         if "```" in text:
-            # Extract from code block
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
                 text = text[start:end]
+            elif "```json" in text:
+                text = text.replace("```json", "").replace("```", "").strip()
+            elif "```" in text:
+                text = text.replace("```", "").strip()
 
         parsed = json.loads(text)
         return parsed
 
     except json.JSONDecodeError:
-        # Fallback: try to extract tool call from text
-        print(f"[DEBUG] Failed to parse JSON from LLM response: {text[:200]}", flush=True)
+        print(f"[DEBUG] Failed to parse JSON from LLM response: {text[:200] if 'text' in locals() else 'None'}", flush=True)
         return {"tool": "get_status", "args": {}}
     except Exception as exc:
         print(f"[DEBUG] Model request failed: {exc}", flush=True)
@@ -202,10 +224,8 @@ def get_model_action(client: OpenAI, observation_prompt: str, history: List[str]
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 
-async def run_task(client: OpenAI, base_url: str, task_name: str) -> float:
-    """Run a single task and return the score."""
-    import httpx
-
+async def run_task(client: OpenAI, task_name: str) -> float:
+    """Run a single task using the OpenEnv Client."""
     max_steps = MAX_STEPS_PER_TASK.get(task_name, 10)
     history: List[str] = []
     rewards: List[float] = []
@@ -216,48 +236,66 @@ async def run_task(client: OpenAI, base_url: str, task_name: str) -> float:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as http:
-            # Reset with specific task
-            reset_resp = await http.post("/reset", json={"task": task_name})
-            reset_data = reset_resp.json()
-            obs_metadata = reset_data.get("observation", {})
-            done = reset_data.get("done", False)
+        # Re-initialize the env for each task to get a clean state process
+        if IMAGE_NAME:
+            env = await IncidentCommanderEnv.from_docker_image(IMAGE_NAME)
+        else:
+            env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
+            env = IncidentCommanderEnv(base_url=env_base_url)
+            
+        try:
+            result = await env.reset(task=task_name)
+            
+            # Unpack observation metadata depending on format
+            if hasattr(result.observation, 'metadata'):
+                obs_metadata = result.observation.metadata
+            elif hasattr(result.observation, 'dict'):
+                obs_metadata = result.observation.dict()
+            else:
+                obs_metadata = getattr(result, "observation", {})
+                
+            done = result.done
 
             for step in range(1, max_steps + 1):
                 if done:
                     break
 
-                # Format observation for LLM
                 obs_prompt = format_observation(obs_metadata, step)
-
-                # Get action from LLM
                 action_dict = get_model_action(client, obs_prompt, history)
                 tool_name = action_dict.get("tool", "get_status")
                 tool_args = action_dict.get("args", {})
 
-                # Execute via /step endpoint with CallToolAction
                 action_str = f"{tool_name}({json.dumps(tool_args)})"
+                
+                # Execute via the standard OpenEnv Env client using properly typed action
                 try:
-                    step_resp = await http.post("/step", json={
-                        "action": {
-                            "type": "call_tool",
-                            "tool_name": tool_name,
-                            "arguments": tool_args,
-                        }
-                    })
-                    step_data = step_resp.json()
-
-                    # Extract reward, done, and observation
-                    reward = step_data.get("reward") or 0.0
-                    done = step_data.get("done", False)
+                    action_obj = CallToolAction(
+                        tool_name=tool_name,
+                        arguments=tool_args
+                    )
+                    step_result = await env.step(action_obj)
+                    
+                    reward = step_result.reward or 0.0
+                    done = step_result.done
                     error = None
 
-                    # Update observation for next step
-                    obs_raw = step_data.get("observation", {})
-                    if isinstance(obs_raw, dict):
-                        # The observation from MCP step is the tool result
-                        # Get fresh state from /state endpoint for full observation
-                        pass
+                    # Use server state call to grab complete refreshed observation metadata if needed, 
+                    # as CallToolObservation strictly holds text "result"
+                    state_result = await env.client.post("/state")
+                    fresh_metadata = state_result.json().get("observation", {})
+                    
+                    # Store tool output in metadata
+                    tool_output = ""
+                    if hasattr(step_result.observation, "result"):
+                        res_val = step_result.observation.result
+                        if isinstance(res_val, str):
+                            tool_output = res_val
+                        elif hasattr(res_val, "content"):
+                            if isinstance(res_val.content, list) and len(res_val.content) > 0:
+                                tool_output = getattr(res_val.content[0], "text", str(res_val.content[0]))
+                                
+                    fresh_metadata["last_action_result"] = tool_output
+                    obs_metadata = fresh_metadata
 
                     rewards.append(reward)
                     steps_taken = step
@@ -265,41 +303,22 @@ async def run_task(client: OpenAI, base_url: str, task_name: str) -> float:
                     log_step(step=step, action=action_str, reward=reward, done=done, error=error)
                     history.append(json.dumps(action_dict))
 
-                    if done:
-                        break
-
-                    # Get updated observation from reset (state endpoint)
-                    # The /step returns MCP tool result, we need full observation
-                    # Re-fetch via another reset-less state query if available
-                    # For now, carry forward the observation metadata from tool result
-                    tool_result_text = ""
-                    if isinstance(obs_raw, dict):
-                        result_data = obs_raw.get("result", {})
-                        if isinstance(result_data, dict):
-                            content = result_data.get("content", [])
-                            if content and isinstance(content, list):
-                                tool_result_text = content[0].get("text", "")
-                            elif result_data.get("data"):
-                                tool_result_text = str(result_data["data"])
-                        elif isinstance(result_data, str):
-                            tool_result_text = result_data
-
-                    # Update obs_metadata with the tool result as "last_action_result"
-                    if tool_result_text:
-                        obs_metadata["last_action_result"] = tool_result_text
-
                 except Exception as e:
                     error_msg = str(e)[:100]
                     rewards.append(-0.05)
                     steps_taken = step
                     log_step(step=step, action=action_str, reward=-0.05, done=False, error=error_msg)
                     history.append(json.dumps(action_dict))
+                    
+                    if done:
+                        break
+        finally:
+            await env.close()
 
         # Calculate final score from rewards
         if rewards:
-            # Normalize: sum of positive rewards vs. max theoretical reward
             positive_rewards = sum(r for r in rewards if r > 0)
-            max_possible = max_steps * 0.15  # conservative estimate
+            max_possible = max_steps * 0.15
             raw_score = positive_rewards / max_possible if max_possible > 0 else 0.0
             score = max(0.0, min(1.0, raw_score))
         else:
@@ -309,8 +328,6 @@ async def run_task(client: OpenAI, base_url: str, task_name: str) -> float:
 
     except Exception as e:
         print(f"[DEBUG] Task {task_name} failed: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
         score = 0.0
         success = False
 
@@ -321,16 +338,8 @@ async def run_task(client: OpenAI, base_url: str, task_name: str) -> float:
 
 
 async def main() -> None:
-    """Run all 3 tasks and report scores."""
+    """Run all tasks and report scores."""
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
-    # Determine environment base URL
-    if IMAGE_NAME:
-        # When using Docker, the OpenEnv infra handles container management
-        # For now, assume the container is already running
-        env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-    else:
-        env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
     try:
         all_scores = {}
@@ -339,10 +348,9 @@ async def main() -> None:
             print(f"Running task: {task_name}", flush=True)
             print(f"{'='*60}", flush=True)
 
-            score = await run_task(client, env_base_url, task_name)
+            score = await run_task(client, task_name)
             all_scores[task_name] = score
 
-        # Summary
         print(f"\n{'='*60}", flush=True)
         print("FINAL SCORES:", flush=True)
         print(f"{'='*60}", flush=True)
@@ -355,7 +363,6 @@ async def main() -> None:
         print(f"[DEBUG] Main failed: {e}", flush=True)
         import traceback
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

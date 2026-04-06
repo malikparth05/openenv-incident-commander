@@ -1,0 +1,50 @@
+
+============================================================
+Running task: single_service_outage
+============================================================
+[START] task=single_service_outage env=incident_commander_env model=Qwen/Qwen2.5-72B-Instruct
+[DEBUG] Task single_service_outage failed: Container at http://localhost:50456 did not become ready within 30.0s
+[END] success=false steps=0 score=0.00 rewards=
+
+============================================================
+Running task: multi_service_degradation
+============================================================
+[START] task=multi_service_degradation env=incident_commander_env model=Qwen/Qwen2.5-72B-Instruct
+[DEBUG] Task multi_service_degradation failed: Container at http://localhost:50528 did not become ready within 30.0s
+[END] success=false steps=0 score=0.00 rewards=
+
+============================================================
+Running task: cascading_infrastructure_failure
+============================================================
+[START] task=cascading_infrastructure_failure env=incident_commander_env model=Qwen/Qwen2.5-72B-Instruct
+[DEBUG] Task cascading_infrastructure_failure failed: Container at http://localhost:50593 did not become ready within 30.0s
+[END] success=false steps=0 score=0.00 rewards=
+
+============================================================
+FINAL SCORES:
+============================================================
+  single_service_outage: 0.00
+  multi_service_degradation: 0.00
+  cascading_infrastructure_failure: 0.00
+  Average: 0.00
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/parthmalik/Documents/hackathon project/inference.py", line 368, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 123, in run
+    raise KeyboardInterrupt()
+KeyboardInterrupt

@@ -20,7 +20,7 @@ try:
 except ImportError:
     from openenv.core.env_server.http_server import create_app
     from openenv.core.env_server.mcp_types import CallToolAction, CallToolObservation
-    from incident_commander_env.server.environment import IncidentCommanderEnvironment
+    from server.environment import IncidentCommanderEnvironment
 
 # Create the app with MCP types
 app = create_app(
