@@ -1,3 +1,13 @@
+---
+title: Incident Commander Env
+emoji: 🚨
+colorFrom: red
+colorTo: blue
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
 # IncidentCommanderEnv — IT Outage Management OpenEnv Environment
 
 > An AI agent manages simulated IT/infrastructure outages — triaging alerts, delegating to teams, and deciding escalation order.
