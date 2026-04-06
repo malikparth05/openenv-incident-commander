@@ -24,7 +24,3 @@ dev = [
 [project.scripts]
 server = "incident_commander_env.server.app:main"
 
-[tool.setuptools]
-include-package-data = true
-packages = ["incident_commander_env", "incident_commander_env.server"]
-package-dir = { "incident_commander_env" = ".", "incident_commander_env.server" = "server" }
