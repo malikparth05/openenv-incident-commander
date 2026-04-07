@@ -339,12 +339,11 @@ async def run_task(client: OpenAI, task_name: str) -> float:
         finally:
             await env.close()
 
-        # Calculate final score from rewards
-        if rewards:
-            positive_rewards = sum(r for r in rewards if r > 0)
-            max_possible = max_steps * 0.15
-            raw_score = positive_rewards / max_possible if max_possible > 0 else 0.0
-            score = max(0.0, min(1.0, raw_score))
+        # Final score is the exact grade returned by the environment on completion.
+        if rewards and done:
+            score = rewards[-1]
+        elif rewards:
+            score = max(0.0, min(1.0, sum(rewards) / max(1, len(rewards))))
         else:
             score = 0.0
 

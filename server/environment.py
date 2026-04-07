@@ -640,6 +640,11 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         # Inject our computed reward and done status into the observation
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        
+        if self._env_state.done:
+            final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
+            reward = final_score
+
         result.reward = reward
         result.done = self._env_state.done
         return result
@@ -663,6 +668,11 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         # Inject our computed reward and done status into the observation
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        
+        if self._env_state.done:
+            final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
+            reward = final_score
+
         result.reward = reward
         result.done = self._env_state.done
         return result

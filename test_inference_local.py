@@ -149,8 +149,11 @@ async def run_task(env, task_name):
                 steps_taken = step
                 log_step(step=step, action=action_str, reward=-0.05, done=False, error=str(e)[:80])
 
-        # Estimate score based on sum of the real rewards in the script
-        score = max(0.0, min(1.0, sum(rewards) / max(1, len(rewards))))
+        # Final score is the exact grade returned by the environment on completion.
+        if rewards and done:
+            score = rewards[-1]
+        else:
+            score = max(0.0, min(1.0, sum(rewards) / max(1, len(rewards))))
         success = score > 0.3
 
     except Exception as e:
