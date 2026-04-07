@@ -13,7 +13,7 @@ Running task: single_service_outage
 [STEP] step=8 action=assign_team({"alert_id": "alert-002", "team": "platform"}) reward=0.15 done=false error=null
 [STEP] step=9 action=assign_team({"alert_id": "alert-003", "team": "platform"}) reward=0.15 done=false error=null
 [STEP] step=10 action=correlate_alerts({"alert_ids": "alert-001,alert-002,alert-003"}) reward=0.10 done=true error=null
-[END] success=false steps=10 score=0.115 rewards=0.05,0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.10
+[END] success=false steps=10 score=0.100 rewards=0.05,0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.10
 
 ============================================================
 Running task: multi_service_degradation
@@ -39,7 +39,7 @@ Running task: multi_service_degradation
 [STEP] step=18 action=assign_team({"alert_id": "alert-108", "team": "application"}) reward=0.15 done=false error=null
 [STEP] step=19 action=correlate_alerts({"alert_ids": "alert-101,alert-102,alert-103,alert-104,alert-105,alert-106,alert-107,alert-108"}) reward=0.10 done=false error=null
 [STEP] step=20 action=escalate({"level": "on_call_lead"}) reward=0.20 done=true error=null
-[END] success=false steps=20 score=0.140 rewards=0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.10,0.20
+[END] success=false steps=20 score=0.200 rewards=0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.10,0.20
 
 ============================================================
 Running task: cascading_infrastructure_failure
@@ -75,12 +75,12 @@ Running task: cascading_infrastructure_failure
 [STEP] step=28 action=set_priority({"alert_id": "alert-213", "priority": "P4"}) reward=0.15 done=false error=null
 [STEP] step=29 action=assign_team({"alert_id": "alert-213", "team": "infrastructure"}) reward=0.15 done=false error=null
 [STEP] step=30 action=set_priority({"alert_id": "alert-214", "priority": "P2"}) reward=0.15 done=true error=null
-[END] success=false steps=30 score=0.140 rewards=0.05,0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15
+[END] success=false steps=30 score=0.150 rewards=0.05,0.05,0.05,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15,0.15
 
 ============================================================
 FINAL SCORES:
 ============================================================
-  single_service_outage: 0.11
-  multi_service_degradation: 0.14
-  cascading_infrastructure_failure: 0.14
-  Average: 0.13
+  single_service_outage: 0.10
+  multi_service_degradation: 0.20
+  cascading_infrastructure_failure: 0.15
+  Average: 0.15
