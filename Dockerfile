@@ -55,6 +55,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Set PYTHONPATH so imports work correctly
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
 
+# Enable interactive Web UI for humans
+ENV ENABLE_WEB_INTERFACE=1
+
 # Expose port
 EXPOSE 7860
 
