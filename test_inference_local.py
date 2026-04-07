@@ -23,7 +23,7 @@ def log_step(step, action, reward, done, error):
 
 def log_end(success, steps, score, rewards):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 # ─── Scripted agent actions per task ──────────────────────────────────────────
@@ -117,6 +117,7 @@ SCRIPTED_TASKS = {
 
 
 async def run_task(env, task_name):
+    from incident_commander_env import CallToolAction
     actions = SCRIPTED_TASKS[task_name]
     rewards = []
     steps_taken = 0
@@ -125,21 +126,30 @@ async def run_task(env, task_name):
 
     try:
         await env.reset(task=task_name)
+        score = 0.0
+        success = False
 
         for step, (tool_name, tool_args) in enumerate(actions, 1):
             action_str = f"{tool_name}({json.dumps(tool_args)})"
             try:
-                result = await env.call_tool(tool_name, **tool_args)
-                reward = 0.05  # base reward estimate
+                action = CallToolAction(tool_name=tool_name, arguments=tool_args)
+                result = await env.step(action)
+                
+                reward = result.reward if result.reward is not None else 0.0
+                done = result.done
+                
                 rewards.append(reward)
                 steps_taken = step
-                log_step(step=step, action=action_str, reward=reward, done=False, error=None)
+                log_step(step=step, action=action_str, reward=reward, done=done, error=None)
+                
+                if done:
+                    break
             except Exception as e:
                 rewards.append(-0.05)
                 steps_taken = step
                 log_step(step=step, action=action_str, reward=-0.05, done=False, error=str(e)[:80])
 
-        # Estimate score
+        # Estimate score based on sum of the real rewards in the script
         score = max(0.0, min(1.0, sum(rewards) / max(1, len(rewards))))
         success = score > 0.3
 
@@ -153,7 +163,7 @@ async def run_task(env, task_name):
 
 
 async def main():
-    env = IncidentCommanderEnv(base_url="http://localhost:8000")
+    env = IncidentCommanderEnv(base_url="https://malikparth05-incident-commander-env.hf.space")
 
     all_scores = {}
     for task_name in ["single_service_outage", "multi_service_degradation", "cascading_infrastructure_failure"]:
