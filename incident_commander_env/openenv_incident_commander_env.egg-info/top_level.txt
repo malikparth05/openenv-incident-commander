@@ -1,1 +1,0 @@
-incident_commander_env
