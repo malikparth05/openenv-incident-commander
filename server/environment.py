@@ -635,7 +635,14 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         # Tick SLA timers
         self._tick_sla_timers()
 
-        return super().step(action, timeout_s=timeout_s, **kwargs)
+        # Get result from MCP tool handler (reward/done will be None in the returned obs)
+        result = super().step(action, timeout_s=timeout_s, **kwargs)
+
+        # Inject our computed reward and done status into the observation
+        reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        result.reward = reward
+        result.done = self._env_state.done
+        return result
 
     async def step_async(
         self,
@@ -651,7 +658,14 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         self._tick_sla_timers()
 
-        return await super().step_async(action, timeout_s=timeout_s, **kwargs)
+        # Get result from MCP tool handler (reward/done will be None in the returned obs)
+        result = await super().step_async(action, timeout_s=timeout_s, **kwargs)
+
+        # Inject our computed reward and done status into the observation
+        reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        result.reward = reward
+        result.done = self._env_state.done
+        return result
 
     @property
     def state(self) -> State:

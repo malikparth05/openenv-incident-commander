@@ -58,7 +58,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 # ─── System Prompt ────────────────────────────────────────────────────────────
@@ -178,6 +178,47 @@ What is your next action? Respond with a JSON tool call.
     """).strip()
 
 
+# ─── Tool output extraction ──────────────────────────────────────────────────
+
+def _extract_tool_output(step_result) -> str:
+    """Extract the text result from a CallToolObservation step result."""
+    try:
+        obs = step_result.observation
+        if hasattr(obs, "result"):
+            res_val = obs.result
+            # If it's a string directly
+            if isinstance(res_val, str):
+                return res_val
+            # If it's an MCP ToolResult with content list
+            if hasattr(res_val, "content"):
+                if isinstance(res_val.content, list) and len(res_val.content) > 0:
+                    first = res_val.content[0]
+                    return getattr(first, "text", str(first))
+            # If it's a dict with structured_content or data
+            if isinstance(res_val, dict):
+                return res_val.get("data", res_val.get("result", str(res_val)))
+            return str(res_val)
+        return str(obs)
+    except Exception:
+        return "Could not parse tool output"
+
+
+def _build_agent_prompt(step: int, max_steps: int, last_tool_output: str, task_name: str) -> str:
+    """Build the prompt for the LLM agent based on the last tool output.
+
+    Since OpenEnv serialization excludes metadata from observations,
+    we feed the agent the raw tool output text instead.
+    """
+    return textwrap.dedent(f"""
+=== STEP {step}/{max_steps} | TASK: {task_name} ===
+Last Tool Result:
+{last_tool_output}
+
+Based on the above information, decide your next action.
+Respond with ONLY a JSON object specifying the tool call.
+    """).strip()
+
+
 # ─── LLM Interaction ─────────────────────────────────────────────────────────
 
 def get_model_action(client: OpenAI, observation_prompt: str, history: List[str]) -> Dict[str, Any]:
@@ -245,28 +286,25 @@ async def run_task(client: OpenAI, task_name: str) -> float:
             
         try:
             result = await env.reset(task=task_name)
-            
-            # Unpack observation metadata depending on format
-            if hasattr(result.observation, 'metadata'):
-                obs_metadata = result.observation.metadata
-            elif hasattr(result.observation, 'dict'):
-                obs_metadata = result.observation.dict()
-            else:
-                obs_metadata = getattr(result, "observation", {})
-                
             done = result.done
+
+            # After reset, observation metadata is empty (by OpenEnv design).
+            # We'll build context for the LLM from tool call results.
+            # Start with a get_status call to seed the LLM with alert info.
+            last_tool_output = f"Environment reset for task: {task_name}. Use get_status() to see current alerts."
 
             for step in range(1, max_steps + 1):
                 if done:
                     break
 
-                obs_prompt = format_observation(obs_metadata, step)
+                # Build prompt from last tool output for the LLM
+                obs_prompt = _build_agent_prompt(step, max_steps, last_tool_output, task_name)
                 action_dict = get_model_action(client, obs_prompt, history)
                 tool_name = action_dict.get("tool", "get_status")
                 tool_args = action_dict.get("args", {})
 
                 action_str = f"{tool_name}({json.dumps(tool_args)})"
-                
+
                 # Execute via the standard OpenEnv Env client using properly typed action
                 try:
                     action_obj = CallToolAction(
@@ -274,28 +312,13 @@ async def run_task(client: OpenAI, task_name: str) -> float:
                         arguments=tool_args
                     )
                     step_result = await env.step(action_obj)
-                    
+
                     reward = step_result.reward or 0.0
                     done = step_result.done
                     error = None
 
-                    # Use server state call to grab complete refreshed observation metadata if needed, 
-                    # as CallToolObservation strictly holds text "result"
-                    state_result = await env.client.post("/state")
-                    fresh_metadata = state_result.json().get("observation", {})
-                    
-                    # Store tool output in metadata
-                    tool_output = ""
-                    if hasattr(step_result.observation, "result"):
-                        res_val = step_result.observation.result
-                        if isinstance(res_val, str):
-                            tool_output = res_val
-                        elif hasattr(res_val, "content"):
-                            if isinstance(res_val.content, list) and len(res_val.content) > 0:
-                                tool_output = getattr(res_val.content[0], "text", str(res_val.content[0]))
-                                
-                    fresh_metadata["last_action_result"] = tool_output
-                    obs_metadata = fresh_metadata
+                    # Extract tool output from CallToolObservation
+                    last_tool_output = _extract_tool_output(step_result)
 
                     rewards.append(reward)
                     steps_taken = step
@@ -305,11 +328,12 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
                 except Exception as e:
                     error_msg = str(e)[:100]
+                    last_tool_output = f"Error: {error_msg}"
                     rewards.append(-0.05)
                     steps_taken = step
                     log_step(step=step, action=action_str, reward=-0.05, done=False, error=error_msg)
                     history.append(json.dumps(action_dict))
-                    
+
                     if done:
                         break
         finally:
