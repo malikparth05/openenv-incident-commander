@@ -144,7 +144,7 @@ docker run -p 7860:7860 incident-commander-env
 
 ### Run the Inference Script
 ```bash
-export HF_TOKEN="your-token-here"
+export API_KEY="your-api-key-here"  # Or use HF_TOKEN
 export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
 python inference.py
@@ -193,8 +193,8 @@ inference.py                  # Baseline inference script (root)
 |----------|----------|---------|-------------|
 | `API_BASE_URL` | No | `https://router.huggingface.co/v1` | LLM API endpoint |
 | `MODEL_NAME` | No | `Qwen/Qwen2.5-72B-Instruct` | Model identifier |
-| `HF_TOKEN` | Yes | — | HuggingFace API token |
-| `IMAGE_NAME` | No | — | Docker image name (if using from_docker_image) |
+| `API_KEY` | Yes | — | API Token (HF_TOKEN works as fallback) |
+| `LOCAL_IMAGE_NAME` | No | — | Docker image name (if using from_docker_image) |
 | `ENV_BASE_URL` | No | `http://localhost:8000` | Environment server URL |
 
 ---
