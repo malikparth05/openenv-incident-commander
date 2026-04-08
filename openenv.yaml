@@ -1,6 +1,17 @@
 spec_version: 1
 name: incident_commander_env
+description: "IT Incident Commander environment — simulates real-world infrastructure outage management with alert triage, team delegation, and escalation decisions"
 type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
+tasks:
+  - name: single_service_outage
+    difficulty: easy
+    description: "Single API gateway outage. 3 correlated alerts. Triage, prioritize P1, route to platform team."
+  - name: multi_service_degradation
+    difficulty: medium
+    description: "DB connection pool exhaustion cascading across 8 services. Identify root cause, correlate, escalate."
+  - name: cascading_infrastructure_failure
+    difficulty: hard
+    description: "Network switch failure across 6+ services with 3 noise alerts. Filter noise, correlate 12 real alerts, escalate to VP Eng."

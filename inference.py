@@ -31,7 +31,7 @@ API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 BENCHMARK = "incident_commander_env"
-MAX_STEPS_PER_TASK = {"single_service_outage": 10, "multi_service_degradation": 20, "cascading_infrastructure_failure": 30}
+MAX_STEPS_PER_TASK = {"single_service_outage": 15, "multi_service_degradation": 25, "cascading_infrastructure_failure": 45}
 TEMPERATURE = 0.3
 MAX_TOKENS = 500
 SUCCESS_SCORE_THRESHOLD = 0.3
@@ -51,14 +51,14 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     # Sanitize action to be single-line
     action_clean = action.replace("\n", " ").replace("\r", "")[:200]
     print(
-        f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
+        f"[STEP]  step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END]   success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 # ─── System Prompt ────────────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ async def run_task(client: OpenAI, task_name: str) -> float:
         if IMAGE_NAME:
             env = await IncidentCommanderEnv.from_docker_image(IMAGE_NAME)
         else:
-            env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
+            env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:7860")
             env = IncidentCommanderEnv(base_url=env_base_url)
             
         try:

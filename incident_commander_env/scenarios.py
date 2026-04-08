@@ -146,7 +146,7 @@ TASK1_GROUND_TRUTH = ScenarioGroundTruth(
     correlation_groups={
         "api_gateway_outage": ["alert-001", "alert-002", "alert-003"],
     },
-    min_steps_possible=6,  # ack x3 + set_priority x3 + assign x3 + correlate + escalate + update = ~6 condensed
+    min_steps_possible=9,  # set_priority x3 + assign_team x3 + correlate + escalate + send_update = 9
 )
 
 TASK1_SLA_TIMERS = [
@@ -323,7 +323,7 @@ TASK2_GROUND_TRUTH = ScenarioGroundTruth(
             "alert-105", "alert-106", "alert-107", "alert-108",
         ],
     },
-    min_steps_possible=12,
+    min_steps_possible=19,  # set_priority x8 + assign_team x8 + correlate + escalate + send_update = 19
 )
 
 TASK2_SLA_TIMERS = [
@@ -725,7 +725,7 @@ SCENARIOS = {
         "ground_truth": TASK1_GROUND_TRUTH,
         "sla_timers": TASK1_SLA_TIMERS,
         "investigation_data": TASK1_INVESTIGATION_DATA,
-        "max_steps": 10,
+        "max_steps": 15,
         "description": "Easy: A single API gateway outage with 3 related alerts. "
                       "Correctly triage, prioritize, and route to the platform team.",
     },
@@ -734,7 +734,7 @@ SCENARIOS = {
         "ground_truth": TASK2_GROUND_TRUTH,
         "sla_timers": TASK2_SLA_TIMERS,
         "investigation_data": TASK2_INVESTIGATION_DATA,
-        "max_steps": 20,
+        "max_steps": 25,
         "description": "Medium: Database connection pool exhaustion causing cascading failures "
                       "across 5 services. Identify root cause, correlate alerts, escalate.",
     },
@@ -743,7 +743,7 @@ SCENARIOS = {
         "ground_truth": TASK3_GROUND_TRUTH,
         "sla_timers": TASK3_SLA_TIMERS,
         "investigation_data": TASK3_INVESTIGATION_DATA,
-        "max_steps": 30,
+        "max_steps": 45,
         "description": "Hard: Network switch failure causing cascading failures across 6+ services. "
                       "Includes 3 noise/false-positive alerts. Filter noise, correlate 12 real alerts.",
     },

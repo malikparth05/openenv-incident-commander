@@ -619,6 +619,33 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             },
         )
 
+    def _inject_reward(self, result: Observation, reward: float, done: bool) -> Observation:
+        """Safely inject reward and done into observation, handling frozen Pydantic models."""
+        try:
+            result.reward = reward
+            result.done = done
+            return result
+        except Exception:
+            pass
+        # Pydantic v2 frozen model — create a copy with updated fields
+        try:
+            return result.model_copy(update={"reward": reward, "done": done})
+        except Exception:
+            pass
+        # Pydantic v1 fallback
+        try:
+            return result.copy(update={"reward": reward, "done": done})
+        except Exception:
+            pass
+        # Last resort: reconstruct from dict
+        try:
+            data = result.model_dump() if hasattr(result, "model_dump") else result.dict()
+            data["reward"] = reward
+            data["done"] = done
+            return type(result)(**data)
+        except Exception:
+            return result
+
     def step(
         self,
         action: Action,
@@ -635,19 +662,17 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         # Tick SLA timers
         self._tick_sla_timers()
 
-        # Get result from MCP tool handler (reward/done will be None in the returned obs)
+        # Get result from MCP tool handler
         result = super().step(action, timeout_s=timeout_s, **kwargs)
 
-        # Inject our computed reward and done status into the observation
+        # Compute reward and override with final grade_episode score when done
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
-        
+
         if self._env_state.done:
             final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
             reward = final_score
 
-        result.reward = reward
-        result.done = self._env_state.done
-        return result
+        return self._inject_reward(result, reward, self._env_state.done)
 
     async def step_async(
         self,
@@ -663,19 +688,17 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         self._tick_sla_timers()
 
-        # Get result from MCP tool handler (reward/done will be None in the returned obs)
+        # Get result from MCP tool handler
         result = await super().step_async(action, timeout_s=timeout_s, **kwargs)
 
-        # Inject our computed reward and done status into the observation
+        # Compute reward and override with final grade_episode score when done
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
-        
+
         if self._env_state.done:
             final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
             reward = final_score
 
-        result.reward = reward
-        result.done = self._env_state.done
-        return result
+        return self._inject_reward(result, reward, self._env_state.done)
 
     @property
     def state(self) -> State:

@@ -5,6 +5,7 @@ instead of an LLM, to validate the full loop + logging format.
 
 import asyncio
 import json
+import os
 from incident_commander_env import IncidentCommanderEnv
 
 BENCHMARK = "incident_commander_env"
@@ -166,7 +167,8 @@ async def run_task(env, task_name):
 
 
 async def main():
-    env = IncidentCommanderEnv(base_url="https://malikparth05-incident-commander-env.hf.space")
+    env_url = os.getenv("ENV_BASE_URL", "https://malikparth05-incident-commander-env.hf.space")
+    env = IncidentCommanderEnv(base_url=env_url)
 
     all_scores = {}
     for task_name in ["single_service_outage", "multi_service_degradation", "cascading_infrastructure_failure"]:

@@ -33,16 +33,21 @@ app = create_app(
 @app.get("/")
 def read_root():
     return {
-        "status": "online", 
+        "status": "online",
         "environment": "IncidentCommanderEnv",
-        "description": "OpenEnv API is running successfully. Connect via OpenEnv client to /step, /reset, and /ws."
+        "description": "OpenEnv API is running successfully. Connect via OpenEnv client to /step, /reset, and /ws.",
     }
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 
 def main():
     """Entry point for direct execution."""
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=7860)
 
 
 if __name__ == "__main__":

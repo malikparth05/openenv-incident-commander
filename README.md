@@ -128,20 +128,18 @@ pip install openenv-core[core]
 
 ### Install the Environment
 ```bash
-pip install -e ./incident_commander_env
+pip install -e .
 ```
 
 ### Run the Server Locally
 ```bash
-cd incident_commander_env
-uvicorn server.app:app --host 0.0.0.0 --port 8000
+uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
 ### Run with Docker
 ```bash
-cd incident_commander_env/server
 docker build -t incident-commander-env .
-docker run -p 8000:8000 incident-commander-env
+docker run -p 7860:7860 incident-commander-env
 ```
 
 ### Run the Inference Script
@@ -158,11 +156,11 @@ python inference.py
 
 | Task | Score | Model |
 |------|-------|-------|
-| single_service_outage | ~0.55 | Qwen2.5-72B-Instruct |
-| multi_service_degradation | ~0.35 | Qwen2.5-72B-Instruct |
-| cascading_infrastructure_failure | ~0.20 | Qwen2.5-72B-Instruct |
+| single_service_outage | ~0.60 | Qwen2.5-72B-Instruct |
+| multi_service_degradation | ~0.40 | Qwen2.5-72B-Instruct |
+| cascading_infrastructure_failure | ~0.25 | Qwen2.5-72B-Instruct |
 
-*Scores are approximate and may vary with model temperature and version.*
+*Scores are approximate and vary with model temperature and version. A perfect scripted agent scores ~0.82 (Task 1), ~0.85 (Task 2), ~0.73 (Task 3).*
 
 ---
 
