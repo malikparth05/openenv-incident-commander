@@ -10,4 +10,3 @@ build/
 dist/
 *.egg-info/
 inference_output.txt
-uv.lock
