@@ -130,19 +130,22 @@ async def run_task(env, task_name):
         score = 0.0
         success = False
 
+        done = False
+
+        # Phase 1: run scripted actions
         for step, (tool_name, tool_args) in enumerate(actions, 1):
             action_str = f"{tool_name}({json.dumps(tool_args)})"
             try:
                 action = CallToolAction(tool_name=tool_name, arguments=tool_args)
                 result = await env.step(action)
-                
+
                 reward = result.reward if result.reward is not None else 0.0
                 done = result.done
-                
+
                 rewards.append(reward)
                 steps_taken = step
                 log_step(step=step, action=action_str, reward=reward, done=done, error=None)
-                
+
                 if done:
                     break
             except Exception as e:
@@ -150,7 +153,26 @@ async def run_task(env, task_name):
                 steps_taken = step
                 log_step(step=step, action=action_str, reward=-0.05, done=False, error=str(e)[:80])
 
-        # Final score is the exact grade returned by the environment on completion.
+        # Phase 2: pad with get_status until episode ends (triggers grade_episode at max_steps)
+        step = steps_taken
+        while not done:
+            step += 1
+            action_str = "get_status({})"
+            try:
+                action = CallToolAction(tool_name="get_status", arguments={})
+                result = await env.step(action)
+                reward = result.reward if result.reward is not None else 0.0
+                done = result.done
+                rewards.append(reward)
+                steps_taken = step
+                log_step(step=step, action=action_str, reward=reward, done=done, error=None)
+            except Exception as e:
+                rewards.append(-0.05)
+                steps_taken = step
+                log_step(step=step, action=action_str, reward=-0.05, done=False, error=str(e)[:80])
+                break
+
+        # Final score = grade_episode result (last reward when done=True)
         if rewards and done:
             score = rewards[-1]
         else:
