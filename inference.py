@@ -26,7 +26,7 @@ from incident_commander_env import IncidentCommanderEnv, CallToolAction
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
-HF_TOKEN = os.getenv("HF_TOKEN")
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
@@ -362,7 +362,7 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report scores."""
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     try:
         all_scores = {}
