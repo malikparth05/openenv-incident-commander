@@ -15,7 +15,7 @@ tags:
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-brightgreen)](https://github.com/meta-pytorch/OpenEnv)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 🎯 Environment Description
+## Environment Description
 
 **IncidentCommanderEnv** simulates the real-world job of an IT Incident Commander / Site Reliability Engineer (SRE) during a production outage. The agent receives a flood of monitoring alerts and must:
 
@@ -38,7 +38,7 @@ This environment provides a **realistic training and evaluation ground** for AI 
 
 ---
 
-## 🛠️ Action Space (MCP Tools)
+## Action Space (MCP Tools)
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -55,7 +55,7 @@ This environment provides a **realistic training and evaluation ground** for AI 
 
 ---
 
-## 👁️ Observation Space
+## Observation Space
 
 Each step, the agent receives:
 
@@ -72,7 +72,7 @@ Each step, the agent receives:
 
 ---
 
-## 📋 Tasks (Easy → Medium → Hard)
+## Tasks (Easy → Medium → Hard)
 
 ### Task 1: Single Service Outage (Easy)
 - **Alerts:** 3 alerts from a single API gateway outage
@@ -92,7 +92,7 @@ Each step, the agent receives:
 
 ---
 
-## 🏆 Reward Function
+## Reward Function
 
 Rewards are provided at **every step** (not just episode end):
 
@@ -119,7 +119,7 @@ Rewards are provided at **every step** (not just episode end):
 
 ---
 
-## 🚀 Setup & Usage
+## Setup & Usage
 
 ### Prerequisites
 ```bash
@@ -152,7 +152,7 @@ python inference.py
 
 ---
 
-## 📊 Baseline Scores
+## Baseline Scores
 
 | Task | Score | Model |
 |------|-------|-------|
@@ -164,7 +164,7 @@ python inference.py
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 incident_commander_env/
@@ -187,7 +187,7 @@ inference.py                  # Baseline inference script (root)
 
 ---
 
-## 🔒 Environment Variables
+## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
