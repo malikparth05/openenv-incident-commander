@@ -25,10 +25,10 @@ from incident_commander_env import IncidentCommanderEnv, CallToolAction
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-IMAGE_NAME = os.getenv("IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+HF_TOKEN = os.getenv("HF_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 BENCHMARK = "incident_commander_env"
 MAX_STEPS_PER_TASK = {"single_service_outage": 15, "multi_service_degradation": 25, "cascading_infrastructure_failure": 45}
@@ -278,8 +278,8 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
     try:
         # Re-initialize the env for each task to get a clean state process
-        if IMAGE_NAME:
-            env = await IncidentCommanderEnv.from_docker_image(IMAGE_NAME)
+        if LOCAL_IMAGE_NAME:
+            env = await IncidentCommanderEnv.from_docker_image(LOCAL_IMAGE_NAME)
         else:
             env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:7860")
             env = IncidentCommanderEnv(base_url=env_base_url)
@@ -362,7 +362,7 @@ async def run_task(client: OpenAI, task_name: str) -> float:
 
 async def main() -> None:
     """Run all tasks and report scores."""
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     try:
         all_scores = {}
