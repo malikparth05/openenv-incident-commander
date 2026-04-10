@@ -287,7 +287,9 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         **kwargs: Any,
     ) -> Observation:
         """Reset the environment with a specific task scenario."""
-        task_name = kwargs.get("task", "single_service_outage")
+        # Default to first available task if not specified
+        available_tasks = list_tasks()
+        task_name = kwargs.get("task", available_tasks[0] if available_tasks else "github_database_failover")
 
         # Load scenario
         scenario = get_scenario(task_name)
