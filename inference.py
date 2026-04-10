@@ -31,12 +31,22 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 BENCHMARK = "incident_commander_env"
-MAX_STEPS_PER_TASK = {"single_service_outage": 15, "multi_service_degradation": 25, "cascading_infrastructure_failure": 45}
+MAX_STEPS_PER_TASK = {
+    "github_database_failover": 15,
+    "fastly_cdn_outage": 25,
+    "aws_network_partition": 45,
+    "solarwinds_supply_chain": 35,
+}
 TEMPERATURE = 0.3
 MAX_TOKENS = 500
 SUCCESS_SCORE_THRESHOLD = 0.3
 
-TASKS = ["single_service_outage", "multi_service_degradation", "cascading_infrastructure_failure"]
+TASKS = [
+    "github_database_failover",
+    "fastly_cdn_outage",
+    "aws_network_partition",
+    "solarwinds_supply_chain",
+]
 
 
 # ─── Logging helpers (EXACT format required) ──────────────────────────────────
@@ -67,38 +77,46 @@ SYSTEM_PROMPT = textwrap.dedent("""
 You are an expert IT Incident Commander managing a real-time infrastructure outage.
 You must triage alerts, assign them to the right teams, and escalate appropriately.
 
+IMPORTANT: Alerts CASCADE over time — new alerts will appear as the incident progresses.
+Pay attention to "new_alerts_this_step" and the cascade warning in get_status().
+
 Available tools (call exactly ONE per turn):
 1. acknowledge_alert(alert_id) — Acknowledge you've seen an alert
 2. set_priority(alert_id, priority) — Set priority: P1 (critical), P2 (high), P3 (medium), P4 (low)
 3. assign_team(alert_id, team) — Route to team: platform, database, network, application, infrastructure, security
 4. escalate(level) — Escalate: on_call_lead, vp_eng, cto
 5. send_update(message, channel) — Send status update to: incident_channel, stakeholder_email, status_page
-6. search_runbooks(query) — Search engineering wikis/runbooks to figure out how to handle specific alerts, which team owns what, etc.
+6. search_runbooks(query) — Search engineering wikis/runbooks to figure out how to handle specific alerts
 7. mark_resolved(alert_id) — Mark alert as resolved
 8. investigate(alert_id) — Get more details about an alert
 9. correlate_alerts(alert_ids) — Group related alerts. alert_ids is comma-separated: "alert-001,alert-002"
-10. get_status() — Get current incident status summary
+10. get_status() — Get current incident status summary (includes cascade warnings)
+11. get_metrics(service_name) — Query real-time performance metrics for a service (latency, error rate, CPU, etc.)
+12. write_postmortem(root_cause_alert_id, incident_severity, resolution_summary) — Write incident postmortem after resolution
 
 Strategy:
-- First acknowledge all alerts to show you've seen them
-- Investigate critical alerts to understand root cause
+- First acknowledge critical alerts, then investigate to understand root cause
+- Use get_metrics() to get data-driven evidence about service health
+- Use search_runbooks() to find team ownership and response procedures
 - Set correct priorities (P1 for critical, P4 for noise/informational)
-- Route alerts to the RIGHT team based on the service affected
+- Route alerts to the RIGHT team based on the service and runbook guidance
 - Correlate related alerts into incident groups
 - Escalate to the appropriate level (don't over-escalate noise)
 - Send status updates to stakeholders
+- After resolving, call write_postmortem with the root cause alert ID to finalize the incident
+- Watch for new cascading alerts each step — address them before they breach SLA
 
 Respond with ONLY a JSON object specifying the tool call:
 {"tool": "<tool_name>", "args": {"param1": "value1", ...}}
 
 Examples:
-{"tool": "search_runbooks", "args": {"query": "api gateway 503 errors"}}
+{"tool": "get_metrics", "args": {"service_name": "postgresql"}}
+{"tool": "search_runbooks", "args": {"query": "database failover replication"}}
 {"tool": "acknowledge_alert", "args": {"alert_id": "alert-001"}}
 {"tool": "set_priority", "args": {"alert_id": "alert-001", "priority": "P1"}}
-{"tool": "assign_team", "args": {"alert_id": "alert-001", "team": "platform"}}
-{"tool": "escalate", "args": {"level": "on_call_lead"}}
+{"tool": "assign_team", "args": {"alert_id": "alert-001", "team": "network"}}
 {"tool": "correlate_alerts", "args": {"alert_ids": "alert-001,alert-002,alert-003"}}
-{"tool": "send_update", "args": {"message": "Investigating API gateway outage", "channel": "incident_channel"}}
+{"tool": "write_postmortem", "args": {"root_cause_alert_id": "alert-001", "incident_severity": "critical", "resolution_summary": "Root cause was network interruption triggering unintended DB failover"}}
 """).strip()
 
 
@@ -154,6 +172,7 @@ def format_observation(obs_metadata: Dict[str, Any], step: int) -> str:
     system_status = obs_metadata.get("system_status", "unknown")
     step_num = obs_metadata.get("step_number", step)
     max_steps = obs_metadata.get("max_steps", 10)
+    new_alerts = obs_metadata.get("new_alerts_this_step", 0)
     
     escalation_state = obs_metadata.get("escalation_state", {})
     if not isinstance(escalation_state, dict) and hasattr(escalation_state, "model_dump"):
@@ -163,11 +182,16 @@ def format_observation(obs_metadata: Dict[str, Any], step: int) -> str:
         
     escalation = escalation_state.get("current_level", "none")
 
+    cascade_notice = ""
+    if new_alerts > 0 and step_num > 0:
+        cascade_notice = f"\n⚠️ CASCADING: {new_alerts} NEW alert(s) appeared this step! The incident is spreading."
+
     return textwrap.dedent(f"""
 === STEP {step_num}/{max_steps} ===
 System Status: {system_status}
 Escalation Level: {escalation}
 Last Action Result: {last_result}
+{cascade_notice}
 
 Active Alerts:
 {alerts_block}

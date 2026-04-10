@@ -1,17 +1,20 @@
 spec_version: 1
 name: incident_commander_env
-description: "IT Incident Commander environment — simulates real-world infrastructure outage management with alert triage, team delegation, and escalation decisions"
+description: "IT Incident Commander environment — simulates real-world infrastructure outage management based on historic incidents (GitHub 2018, Fastly 2021, AWS EBS, SolarWinds). Features temporal alert cascading, live service metrics, and deterministic grading with detailed feedback."
 type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
 tasks:
-  - name: single_service_outage
+  - name: github_database_failover
     difficulty: easy
-    description: "Single API gateway outage. 3 correlated alerts. Triage, prioritize P1, route to platform team."
-  - name: multi_service_degradation
+    description: "Based on GitHub Oct 2018 outage. 43-second network interruption triggers MySQL Orchestrator failover and data divergence across 23 clusters. 4 alerts cascading over 3 steps."
+  - name: fastly_cdn_outage
     difficulty: medium
-    description: "DB connection pool exhaustion cascading across 8 services. Identify root cause, correlate, escalate."
-  - name: cascading_infrastructure_failure
+    description: "Based on Fastly June 2021 outage. Latent Varnish bug triggered by customer config change crashes 85% of edge nodes. 8 alerts (1 noise) cascading over 4 steps."
+  - name: aws_network_partition
     difficulty: hard
-    description: "Network switch failure across 6+ services with 3 noise alerts. Filter noise, correlate 12 real alerts, escalate to VP Eng."
+    description: "Based on AWS US-EAST-1 EBS outage patterns. Core switch failure partitions AZ-2. 15 alerts (3 noise) cascading over 7 steps. EBS volumes stuck, services cascading."
+  - name: solarwinds_supply_chain
+    difficulty: expert
+    description: "Based on SolarWinds 2020 attack pattern. CI/CD supply chain compromise, lateral movement, 48 GB data exfiltration. 11 alerts (2 noise) cascading over 5 steps. Requires CTO escalation and postmortem."

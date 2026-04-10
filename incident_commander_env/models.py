@@ -77,6 +77,7 @@ class Alert(BaseModel):
     assigned_team: Optional[str] = Field(default=None, description="Team the alert was assigned to")
     is_noise: bool = Field(default=False, description="Whether this is a false positive/noise (hidden from agent)")
     correlation_group: Optional[str] = Field(default=None, description="Which incident group this belongs to (hidden)")
+    trigger_step: int = Field(default=0, description="Step at which this alert becomes visible (for temporal cascading)")
 
 
 class TeamInfo(BaseModel):
@@ -101,6 +102,20 @@ class SLATimer(BaseModel):
     breached: bool = Field(default=False)
 
 
+class ServiceMetrics(BaseModel):
+    """Time-series performance metrics for a service, returned by get_metrics()."""
+    service: str = Field(description="Service name")
+    latency_p50_ms: float = Field(description="Median latency in milliseconds")
+    latency_p99_ms: float = Field(description="99th percentile latency in milliseconds")
+    error_rate_pct: float = Field(description="Current error rate percentage")
+    cpu_utilization_pct: float = Field(description="CPU utilization percentage")
+    memory_utilization_pct: float = Field(description="Memory utilization percentage")
+    request_rate_rpm: float = Field(description="Requests per minute")
+    saturation_pct: Optional[float] = Field(default=None, description="Resource saturation (e.g., connection pool usage)")
+    status_summary: str = Field(default="healthy", description="Human-readable status")
+    trend: str = Field(default="stable", description="Trend direction: improving, stable, degrading, critical")
+
+
 # ─── Observation (what the agent sees) ────────────────────────────────────────
 
 class IncidentObservation(BaseModel):
@@ -121,6 +136,7 @@ class IncidentObservation(BaseModel):
     last_action_result: str = Field(default="", description="Result message from last action")
     last_action_error: Optional[str] = Field(default=None, description="Error from last action if any")
     investigation_results: Dict[str, str] = Field(default_factory=dict, description="Results from investigate actions")
+    new_alerts_this_step: int = Field(default=0, description="Number of new alerts that appeared this step (cascading)")
 
 
 # ─── Ground truth (for grading — not shown to agent) ─────────────────────────
@@ -147,6 +163,15 @@ class ScenarioGroundTruth(BaseModel):
     min_steps_possible: int = Field(description="Minimum steps to complete perfectly")
 
 
+# ─── Postmortem ──────────────────────────────────────────────────────────────
+
+class PostmortemData(BaseModel):
+    """Agent-written postmortem for the incident."""
+    root_cause_alert_id: str = Field(description="Alert ID the agent identified as root cause")
+    incident_severity: str = Field(description="Agent-assessed severity: low, medium, high, critical")
+    resolution_summary: str = Field(description="Brief summary of what was done to resolve")
+
+
 # ─── Internal State ──────────────────────────────────────────────────────────
 
 class IncidentState(BaseModel):
@@ -161,3 +186,11 @@ class IncidentState(BaseModel):
     action_log: List[str] = Field(default_factory=list)
     correlated_groups: Dict[str, List[str]] = Field(default_factory=dict)
     updates_sent: int = Field(default=0)
+    investigation_results: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Results from investigate() calls — alert_id -> findings"
+    )
+    postmortem: Optional[PostmortemData] = Field(
+        default=None,
+        description="Agent-written postmortem, if submitted via write_postmortem()"
+    )

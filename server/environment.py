@@ -14,6 +14,8 @@ All interactions happen through MCP tools:
 - investigate(alert_id)
 - correlate_alerts(alert_ids)
 - get_status()
+- get_metrics(service_name)
+- write_postmortem(root_cause_alert_id, incident_severity, resolution_summary)
 """
 
 import copy
@@ -36,7 +38,9 @@ try:
         EscalationState,
         IncidentObservation,
         IncidentState,
+        PostmortemData,
         Priority,
+        ServiceMetrics,
         SLATimer,
         Team,
     )
@@ -54,7 +58,9 @@ except ImportError:
         EscalationState,
         IncidentObservation,
         IncidentState,
+        PostmortemData,
         Priority,
+        ServiceMetrics,
         SLATimer,
         Team,
     )
@@ -80,6 +86,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
     def __init__(self):
         """Initialize the environment with MCP tools."""
         mcp = FastMCP("incident_commander_env")
+        self._grading_feedback: str = ""  # Store feedback to return at episode end
 
         # Store reference to self for tool closures
         env = self
@@ -214,6 +221,45 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             """
             return env._handle_get_status()
 
+        @mcp.tool
+        def get_metrics(service_name: str) -> str:
+            """
+            Query real-time performance metrics for a specific service.
+
+            Returns time-series data including latency, error rate, CPU/memory utilization,
+            request rate, and resource saturation. Use this to diagnose issues with data
+            rather than guessing from alert descriptions alone.
+
+            Args:
+                service_name: Name of the service to query (e.g., 'api_gateway', 'postgresql', 'auth_service')
+
+            Returns:
+                Current performance metrics with trend indicators
+            """
+            return env._handle_get_metrics(service_name)
+
+        @mcp.tool
+        def write_postmortem(
+            root_cause_alert_id: str,
+            incident_severity: str,
+            resolution_summary: str,
+        ) -> str:
+            """
+            Write a postmortem for the incident after it has been resolved.
+
+            This is the most important closing action — it demonstrates full understanding
+            of the incident's root cause. Postmortems are evaluated for correctness.
+
+            Args:
+                root_cause_alert_id: The alert ID of the identified root cause (e.g., 'alert-001')
+                incident_severity: Agent-assessed severity — one of 'low', 'medium', 'high', 'critical'
+                resolution_summary: Brief summary (1–3 sentences) of what was done to resolve the incident
+
+            Returns:
+                Confirmation message with evaluation of root cause identification
+            """
+            return env._handle_write_postmortem(root_cause_alert_id, incident_severity, resolution_summary)
+
         super().__init__(mcp)
 
         # Internal state
@@ -223,6 +269,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         self._sla_timers: List[SLATimer] = []
         self._investigation_data: Dict[str, str] = {}
         self._investigation_results: Dict[str, str] = {}
+        self._metrics_data: Dict[str, dict] = {}  # service -> metrics config for get_metrics()
         self._max_steps: int = 10
         self._step_rewards: List[float] = []
         self._correlated_groups: Dict[str, List[str]] = {}
@@ -231,6 +278,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         self._teams = []
         self._last_action_result: str = ""
         self._last_action_error: Optional[str] = None
+        self._visible_alert_ids: set = set()  # Track which alerts the agent has already seen
 
     def reset(
         self,
@@ -249,13 +297,19 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         self._sla_timers = scenario["sla_timers"]
         self._investigation_data = scenario["investigation_data"]
         self._investigation_results = {}
+        self._metrics_data = scenario.get("metrics_data", {})
         self._max_steps = scenario["max_steps"]
         self._step_rewards = []
         self._correlated_groups = {}
         self._correlation_counter = 0
         self._updates_sent = 0
-        self._last_action_result = f"Incident Commander initialized. Task: {task_name}. You have {len(scenario['alerts'])} alerts to manage."
+        self._visible_alert_ids = set()
+
+        # Count initial alerts (trigger_step == 0)
+        initial_alert_count = sum(1 for a in scenario["alerts"] if a.trigger_step <= 0)
+        self._last_action_result = f"Incident Commander initialized. Task: {task_name}. You have {initial_alert_count} alerts to manage. More may cascade in."
         self._last_action_error = None
+        self._grading_feedback = ""  # Reset feedback for new episode
 
         # Import teams
         try:
@@ -264,7 +318,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             from scenarios import get_teams
         self._teams = get_teams()
 
-        # Initialize state
+        # Initialize state — store ALL alerts internally, filtering happens in _make_observation
         self._env_state = IncidentState(
             episode_id=episode_id or str(uuid4()),
             step_count=0,
@@ -276,26 +330,49 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             action_log=[],
             correlated_groups={},
             updates_sent=0,
+            investigation_results={},
+            postmortem=None,
         )
 
         return self._make_observation()
 
     def _make_observation(self) -> Observation:
-        """Create an observation from current state."""
-        # Filter out hidden fields from alerts for the agent
+        """Create an observation from current state.
+
+        Implements temporal cascading: only alerts whose trigger_step
+        is <= the current step_count are shown to the agent.
+        """
+        current_step = self._env_state.step_count
+
+        # Filter alerts: only show those that have "triggered" by this step
         visible_alerts = []
+        new_alerts_this_step = 0
         for alert in self._env_state.alerts:
+            if alert.trigger_step > current_step:
+                continue  # Not yet visible — cascading hasn't reached this alert
             visible = alert.model_copy()
             # Agent shouldn't see internal metadata
             visible.is_noise = False  # Hide this from agent
             visible.correlation_group = None  # Hide this from agent
+            visible.trigger_step = 0  # Hide cascading metadata from agent
             visible_alerts.append(visible)
+
+            # Track newly appeared alerts
+            if alert.alert_id not in self._visible_alert_ids:
+                self._visible_alert_ids.add(alert.alert_id)
+                new_alerts_this_step += 1
+
+        # Filter SLA timers to only include visible alerts
+        visible_sla_timers = [
+            t for t in self._sla_timers
+            if t.alert_id in self._visible_alert_ids
+        ]
 
         obs_data = IncidentObservation(
             alerts=visible_alerts,
             teams=self._teams,
             escalation_state=self._env_state.escalation_state,
-            sla_timers=self._sla_timers,
+            sla_timers=visible_sla_timers,
             action_log=self._env_state.action_log[-10:],  # Last 10 actions
             system_status=self._compute_system_status(),
             step_number=self._env_state.step_count,
@@ -304,14 +381,21 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             last_action_result=self._last_action_result,
             last_action_error=self._last_action_error,
             investigation_results=self._investigation_results,
+            new_alerts_this_step=new_alerts_this_step,
         )
 
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
 
+        metadata = obs_data.model_dump()
+
+        # Add grading feedback to final observation when episode is done
+        if self._env_state.done and self._grading_feedback:
+            metadata["grading_feedback"] = self._grading_feedback
+
         return Observation(
             done=self._env_state.done,
             reward=reward,
-            metadata=obs_data.model_dump(),
+            metadata=metadata,
         )
 
     def _compute_system_status(self) -> str:
@@ -407,6 +491,10 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         elif action_type == "mark_resolved":
             reward = 0.05
+
+        elif action_type == "write_postmortem":
+            # Reward based on whether root cause was correctly identified
+            reward = details.get("postmortem_reward", 0.0)
 
         return reward
 
@@ -540,6 +628,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             f"No additional investigation data available for alert '{alert_id}'."
         )
         self._investigation_results[alert_id] = result
+        self._env_state.investigation_results[alert_id] = result
         reward = self._compute_step_reward("investigate", True)
         self._record_action(f"investigate({alert_id}) — OK", reward)
         return result
@@ -567,23 +656,179 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         return f"Alerts {alert_ids} correlated as '{group_name}'. These alerts will be tracked as a single incident."
 
     def _handle_get_status(self) -> str:
-        status = self._compute_system_status()
-        total = len(self._env_state.alerts)
-        ack = sum(1 for a in self._env_state.alerts if a.status != AlertStatus.NEW)
-        assigned = sum(1 for a in self._env_state.alerts if a.status == AlertStatus.ASSIGNED)
-        resolved = sum(1 for a in self._env_state.alerts if a.status == AlertStatus.RESOLVED)
+        current_step = self._env_state.step_count
+        # Only count visible alerts
+        visible = [a for a in self._env_state.alerts if a.trigger_step <= current_step]
+        total = len(visible)
+        pending = sum(1 for a in self._env_state.alerts if a.trigger_step > current_step)
+        ack = sum(1 for a in visible if a.status != AlertStatus.NEW)
+        assigned = sum(1 for a in visible if a.status == AlertStatus.ASSIGNED)
+        resolved = sum(1 for a in visible if a.status == AlertStatus.RESOLVED)
         esc = self._env_state.escalation_state.current_level.value
         groups = len(self._correlated_groups)
+
+        status = self._compute_system_status()
+        cascade_warning = ""
+        if pending > 0:
+            cascade_warning = f"\n⚠ {pending} more alerts may cascade if root cause is not addressed."
 
         return (
             f"=== INCIDENT STATUS ===\n"
             f"Overall: {status}\n"
-            f"Alerts: {total} total, {ack} acknowledged, {assigned} assigned, {resolved} resolved\n"
+            f"Alerts: {total} visible, {ack} acknowledged, {assigned} assigned, {resolved} resolved\n"
             f"Escalation: {esc}\n"
             f"Correlation groups: {groups}\n"
             f"Status updates sent: {self._updates_sent}\n"
-            f"Step: {self._env_state.step_count}/{self._max_steps}\n"
+            f"Step: {self._env_state.step_count}/{self._max_steps}"
+            f"{cascade_warning}\n"
             f"========================"
+        )
+
+    def _handle_get_metrics(self, service_name: str) -> str:
+        """Return real-time performance metrics for a specific service."""
+        service_lower = service_name.lower().strip()
+
+        # Get base metrics from scenario data if available
+        metrics_config = self._metrics_data.get(service_lower)
+
+        if metrics_config is None:
+            # Generate dynamic metrics based on alert state
+            metrics_config = self._generate_dynamic_metrics(service_lower)
+
+        if metrics_config is None:
+            self._record_action(f"get_metrics({service_name}) — no data", 0.0)
+            return f"No metrics available for service '{service_name}'. Available services: {self._get_known_services()}"
+
+        # Build the metrics response
+        metrics = ServiceMetrics(
+            service=service_lower,
+            **metrics_config,
+        )
+
+        reward = 0.05  # Small reward for data-driven investigation
+        self._record_action(f"get_metrics({service_lower}) — OK", reward)
+
+        # Format as human-readable text with trend indicators
+        trend_arrow = {"improving": "↘ improving", "stable": "→ stable", "degrading": "↗ degrading", "critical": "⚠ critical"}
+        arrow = trend_arrow.get(metrics.trend, "→ stable")
+
+        lines = [
+            f"=== METRICS: {metrics.service} ===",
+            f"Latency P50:     {metrics.latency_p50_ms:.0f}ms",
+            f"Latency P99:     {metrics.latency_p99_ms:.0f}ms",
+            f"Error Rate:      {metrics.error_rate_pct:.1f}%",
+            f"CPU:             {metrics.cpu_utilization_pct:.0f}%",
+            f"Memory:          {metrics.memory_utilization_pct:.0f}%",
+            f"Request Rate:    {metrics.request_rate_rpm:.0f} req/min",
+        ]
+        if metrics.saturation_pct is not None:
+            lines.append(f"Saturation:      {metrics.saturation_pct:.0f}% (connection pool / queue)")
+        lines.append(f"Status:          {metrics.status_summary}")
+        lines.append(f"Trend:           {arrow}")
+        lines.append("========================")
+
+        return "\n".join(lines)
+
+    def _generate_dynamic_metrics(self, service_name: str) -> Optional[dict]:
+        """Generate metrics dynamically based on current alert state for a service."""
+        # Find alerts related to this service
+        current_step = self._env_state.step_count
+        service_alerts = [
+            a for a in self._env_state.alerts
+            if a.service.lower() == service_name and a.trigger_step <= current_step
+        ]
+
+        if not service_alerts:
+            return None
+
+        # Count unresolved critical/warning alerts to determine severity
+        critical_count = sum(1 for a in service_alerts if a.severity.value == "critical" and a.status != AlertStatus.RESOLVED)
+        warning_count = sum(1 for a in service_alerts if a.severity.value == "warning" and a.status != AlertStatus.RESOLVED)
+
+        if critical_count > 0:
+            return {
+                "latency_p50_ms": 450.0 + critical_count * 200,
+                "latency_p99_ms": 5000.0 + critical_count * 2000,
+                "error_rate_pct": min(95.0, 15.0 + critical_count * 25),
+                "cpu_utilization_pct": min(98.0, 70.0 + critical_count * 10),
+                "memory_utilization_pct": min(95.0, 65.0 + critical_count * 10),
+                "request_rate_rpm": max(50.0, 1200.0 - critical_count * 300),
+                "saturation_pct": min(100.0, 80.0 + critical_count * 8),
+                "status_summary": f"CRITICAL — {critical_count} critical alert(s) active",
+                "trend": "critical",
+            }
+        elif warning_count > 0:
+            return {
+                "latency_p50_ms": 120.0 + warning_count * 50,
+                "latency_p99_ms": 800.0 + warning_count * 300,
+                "error_rate_pct": min(40.0, 2.0 + warning_count * 5),
+                "cpu_utilization_pct": min(85.0, 45.0 + warning_count * 10),
+                "memory_utilization_pct": min(80.0, 50.0 + warning_count * 8),
+                "request_rate_rpm": max(200.0, 1000.0 - warning_count * 150),
+                "saturation_pct": min(75.0, 40.0 + warning_count * 12),
+                "status_summary": f"DEGRADED — {warning_count} warning(s) active",
+                "trend": "degrading",
+            }
+        else:
+            return {
+                "latency_p50_ms": 25.0,
+                "latency_p99_ms": 95.0,
+                "error_rate_pct": 0.05,
+                "cpu_utilization_pct": 22.0,
+                "memory_utilization_pct": 35.0,
+                "request_rate_rpm": 1200.0,
+                "saturation_pct": 12.0,
+                "status_summary": "healthy",
+                "trend": "stable",
+            }
+
+    def _get_known_services(self) -> str:
+        """Get a comma-separated list of services that have alerts."""
+        services = sorted(set(a.service for a in self._env_state.alerts))
+        return ", ".join(services)
+
+    def _handle_write_postmortem(
+        self,
+        root_cause_alert_id: str,
+        incident_severity: str,
+        resolution_summary: str,
+    ) -> str:
+        valid_severities = ["low", "medium", "high", "critical"]
+        if incident_severity.lower() not in valid_severities:
+            self._record_action(f"write_postmortem({root_cause_alert_id}) — FAILED: invalid severity", -0.05)
+            return f"Error: Invalid severity '{incident_severity}'. Must be one of: {valid_severities}"
+
+        # Validate the alert ID exists
+        if self._find_alert(root_cause_alert_id) is None:
+            self._record_action(f"write_postmortem({root_cause_alert_id}) — FAILED: alert not found", -0.05)
+            return f"Error: Alert '{root_cause_alert_id}' not found."
+
+        postmortem = PostmortemData(
+            root_cause_alert_id=root_cause_alert_id,
+            incident_severity=incident_severity.lower(),
+            resolution_summary=resolution_summary,
+        )
+        self._env_state.postmortem = postmortem
+
+        # Check if root cause identification is correct
+        root_cause_ids = set()
+        if self._ground_truth:
+            root_cause_ids = {t.alert_id for t in self._ground_truth.alert_truths if t.is_root_cause}
+
+        if root_cause_alert_id in root_cause_ids:
+            postmortem_reward = 0.15
+            verdict = "CORRECT — root cause correctly identified"
+        else:
+            postmortem_reward = 0.0
+            verdict = f"INCORRECT — '{root_cause_alert_id}' is not the root cause"
+
+        reward = self._compute_step_reward("write_postmortem", True, {"postmortem_reward": postmortem_reward})
+        self._record_action(f"write_postmortem({root_cause_alert_id}) — {verdict}", reward)
+        return (
+            f"Postmortem recorded.\n"
+            f"Root cause: {root_cause_alert_id} — {verdict}\n"
+            f"Severity: {incident_severity}\n"
+            f"Summary: {resolution_summary}"
         )
 
     def _record_action(self, log_entry: str, reward: float):
@@ -669,7 +914,8 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
 
         if self._env_state.done:
-            final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
+            final_score, components = grade_episode(self._env_state, self._ground_truth, self._max_steps, sla_timers=self._sla_timers)
+            self._grading_feedback = components.get("feedback", "")
             reward = final_score
 
         return self._inject_reward(result, reward, self._env_state.done)
@@ -695,7 +941,8 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         reward = self._step_rewards[-1] if self._step_rewards else 0.0
 
         if self._env_state.done:
-            final_score, _ = grade_episode(self._env_state, self._ground_truth, self._max_steps)
+            final_score, components = grade_episode(self._env_state, self._ground_truth, self._max_steps, sla_timers=self._sla_timers)
+            self._grading_feedback = components.get("feedback", "")
             reward = final_score
 
         return self._inject_reward(result, reward, self._env_state.done)
