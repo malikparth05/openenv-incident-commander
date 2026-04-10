@@ -389,10 +389,6 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             new_alerts_this_step=new_alerts_this_step,
         )
 
-        # Add grading feedback to final observation metadata when episode is done
-        if self._env_state.done and self._grading_feedback:
-            obs.metadata["grading_feedback"] = self._grading_feedback
-
         return obs
 
     def _compute_system_status(self) -> str:
