@@ -318,7 +318,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             from scenarios import get_teams
         self._teams = get_teams()
 
-        # Initialize state — store ALL alerts internally, filtering happens in _make_observation
+        # Initialize environment state
         self._env_state = IncidentState(
             episode_id=episode_id or str(uuid4()),
             step_count=0,
@@ -336,7 +336,7 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         return self._make_observation()
 
-    def _make_observation(self) -> Observation:
+    def _make_observation(self) -> IncidentObservation:
         """Create an observation from current state.
 
         Implements temporal cascading: only alerts whose trigger_step
@@ -368,35 +368,32 @@ class IncidentCommanderEnvironment(MCPEnvironment):
             if t.alert_id in self._visible_alert_ids
         ]
 
-        obs_data = IncidentObservation(
+        # Use our domain-specific observation model which now inherits from core Observation
+        reward = self._step_rewards[-1] if self._step_rewards else 0.0
+
+        obs = IncidentObservation(
+            done=self._env_state.done,
+            reward=reward,
             alerts=visible_alerts,
             teams=self._teams,
             escalation_state=self._env_state.escalation_state,
             sla_timers=visible_sla_timers,
-            action_log=self._env_state.action_log[-10:],  # Last 10 actions
+            action_log=self._env_state.action_log[-10:],
             system_status=self._compute_system_status(),
             step_number=self._env_state.step_count,
             max_steps=self._max_steps,
             task_name=self._env_state.task_name,
             last_action_result=self._last_action_result,
             last_action_error=self._last_action_error,
-            investigation_results=self._investigation_results,
+            investigation_results=copy.deepcopy(self._investigation_results),
             new_alerts_this_step=new_alerts_this_step,
         )
 
-        reward = self._step_rewards[-1] if self._step_rewards else 0.0
-
-        metadata = obs_data.model_dump()
-
-        # Add grading feedback to final observation when episode is done
+        # Add grading feedback to final observation metadata when episode is done
         if self._env_state.done and self._grading_feedback:
-            metadata["grading_feedback"] = self._grading_feedback
+            obs.metadata["grading_feedback"] = self._grading_feedback
 
-        return Observation(
-            done=self._env_state.done,
-            reward=reward,
-            metadata=metadata,
-        )
+        return obs
 
     def _compute_system_status(self) -> str:
         """Compute overall system status summary."""
@@ -900,25 +897,24 @@ class IncidentCommanderEnvironment(MCPEnvironment):
         """Execute a step in the environment."""
         self._env_state.step_count += 1
 
-        # Check if episode should end (max steps reached)
         if self._env_state.step_count >= self._max_steps:
             self._env_state.done = True
 
-        # Tick SLA timers
         self._tick_sla_timers()
 
-        # Get result from MCP tool handler
-        result = super().step(action, timeout_s=timeout_s, **kwargs)
+        # Call underlying MCP handler (updates state and _step_rewards)
+        _ = super().step(action, timeout_s=timeout_s, **kwargs)
 
-        # Compute reward and override with final grade_episode score when done
-        reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        # Generate observation
+        obs = self._make_observation()
 
+        # Grading logic
         if self._env_state.done:
             final_score, components = grade_episode(self._env_state, self._ground_truth, self._max_steps, sla_timers=self._sla_timers)
             self._grading_feedback = components.get("feedback", "")
-            reward = final_score
+            obs.reward = final_score
 
-        return self._inject_reward(result, reward, self._env_state.done)
+        return obs
 
     async def step_async(
         self,
@@ -934,18 +930,18 @@ class IncidentCommanderEnvironment(MCPEnvironment):
 
         self._tick_sla_timers()
 
-        # Get result from MCP tool handler
-        result = await super().step_async(action, timeout_s=timeout_s, **kwargs)
+        # Call underlying MCP handler
+        _ = await super().step_async(action, timeout_s=timeout_s, **kwargs)
 
-        # Compute reward and override with final grade_episode score when done
-        reward = self._step_rewards[-1] if self._step_rewards else 0.0
+        # Generate observation
+        obs = self._make_observation()
 
         if self._env_state.done:
             final_score, components = grade_episode(self._env_state, self._ground_truth, self._max_steps, sla_timers=self._sla_timers)
             self._grading_feedback = components.get("feedback", "")
-            reward = final_score
+            obs.reward = final_score
 
-        return self._inject_reward(result, reward, self._env_state.done)
+        return obs
 
     @property
     def state(self) -> State:

@@ -116,9 +116,13 @@ class ServiceMetrics(BaseModel):
     trend: str = Field(default="stable", description="Trend direction: improving, stable, degrading, critical")
 
 
-# ─── Observation (what the agent sees) ────────────────────────────────────────
+try:
+    from openenv.core.env_server.types import Observation
+except ImportError:
+    # Use fallback base class if openenv is not installed (e.g. during local tests)
+    from pydantic import BaseModel as Observation
 
-class IncidentObservation(BaseModel):
+class IncidentObservation(Observation):
     """What the agent observes each step.
 
     Contains all visible state: active alerts, team status, escalation state,
